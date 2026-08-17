@@ -166,6 +166,7 @@
   }
 
   #learningArea {
+    position: relative;
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -174,7 +175,26 @@
     min-height: 0;
   }
 
+  .tap-nav-zone {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 50%;
+    z-index: 0;
+    cursor: pointer;
+  }
+
+  .tap-nav-zone.prev {
+    left: 0;
+  }
+
+  .tap-nav-zone.next {
+    right: 0;
+  }
+
   .card-scene {
+    position: relative;
+    z-index: 1;
     width: 100%;
     max-width: 400px;
     flex: 1;
@@ -892,6 +912,8 @@
   <div class="current-category-badge" id="currentCategoryBadge">すべてのカテゴリ</div>
 
   <div id="learningArea">
+    <div class="tap-nav-zone prev" id="prevTapZone" aria-hidden="true"></div>
+    <div class="tap-nav-zone next" id="nextTapZone" aria-hidden="true"></div>
     <div class="card-scene" id="cardScene">
       <div class="card" id="card">
         <div class="card-face card-front">
@@ -942,7 +964,7 @@
         <div class="form-group bulk-paste-group">
           <label for="bulkPasteArea">一括貼り付け(テンプレートをそのままペースト)</label>
           <textarea id="bulkPasteArea" placeholder="🎴【カード：カテゴリー名】タイトル&#10;［表：キーワード3つ］&#10;1. ...&#10;［裏：短縮意味（2行）］&#10;..."></textarea>
-          <button type="button" class="autofill-btn" id="autoFillBtn">自動入力</button>
+          <button type="submit" class="autofill-btn" id="submitBtn">追加</button>
         </div>
 
         <hr class="form-divider">
@@ -966,7 +988,6 @@
         </div>
         <div class="form-actions">
           <button type="button" class="form-btn cancel" id="cancelAddBtn">キャンセル</button>
-          <button type="submit" class="form-btn submit" id="submitBtn">追加</button>
         </div>
       </form>
       <button type="button" class="modal-delete-btn" id="modalDeleteBtn" style="display:none;">🗑 このカードを削除</button>
@@ -1039,6 +1060,8 @@
   let currentIndex = 0;
 
   const cardEl = document.getElementById("card");
+  const prevTapZone = document.getElementById("prevTapZone");
+  const nextTapZone = document.getElementById("nextTapZone");
   const learningAreaEl = document.getElementById("learningArea");
   const cardActionsAreaEl = document.getElementById("cardActionsArea");
   const emptyStateEl = document.getElementById("emptyState");
@@ -1066,7 +1089,6 @@
   const modalDeleteBtn = document.getElementById("modalDeleteBtn");
   const cardForm = document.getElementById("cardForm");
   const bulkPasteArea = document.getElementById("bulkPasteArea");
-  const autoFillBtn = document.getElementById("autoFillBtn");
   const inputTitle = document.getElementById("inputTitle");
   const inputCategory = document.getElementById("inputCategory");
   const categoryDatalist = document.getElementById("categoryDatalist");
@@ -1284,22 +1306,33 @@
     return true;
   }
 
+  function goToPrevCard() {
+    if (visibleIndices.length === 0) return;
+    currentIndex = (currentIndex - 1 + visibleIndices.length) % visibleIndices.length;
+    renderCard(currentIndex);
+  }
+
+  function goToNextCard() {
+    if (visibleIndices.length === 0) return;
+    currentIndex = (currentIndex + 1) % visibleIndices.length;
+    renderCard(currentIndex);
+  }
+
   cardEl.addEventListener("click", () => {
     cardEl.classList.toggle("is-flipped");
   });
 
+  prevTapZone.addEventListener("click", goToPrevCard);
+  nextTapZone.addEventListener("click", goToNextCard);
+
   prevBtn.addEventListener("click", (e) => {
     e.stopPropagation();
-    if (visibleIndices.length === 0) return;
-    currentIndex = (currentIndex - 1 + visibleIndices.length) % visibleIndices.length;
-    renderCard(currentIndex);
+    goToPrevCard();
   });
 
   nextBtn.addEventListener("click", (e) => {
     e.stopPropagation();
-    if (visibleIndices.length === 0) return;
-    currentIndex = (currentIndex + 1) % visibleIndices.length;
-    renderCard(currentIndex);
+    goToNextCard();
   });
 
   memorizeBtn.addEventListener("click", (e) => {
@@ -1554,13 +1587,6 @@
 
   bulkPasteArea.addEventListener("input", () => {
     tryAutoFill();
-  });
-
-  autoFillBtn.addEventListener("click", () => {
-    const ok = tryAutoFill();
-    if (!ok) {
-      alert("テンプレート形式（［表：…］［裏：…］）を検出できませんでした。手動で入力してください。");
-    }
   });
 
   cardForm.addEventListener("submit", (e) => {
