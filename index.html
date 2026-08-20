@@ -202,6 +202,39 @@
     perspective: 1200px;
   }
 
+  .card-created-date {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    z-index: 2;
+    font-size: 11px;
+    color: var(--text-sub);
+    background: rgba(255, 255, 255, 0.85);
+    padding: 3px 9px;
+    border-radius: 999px;
+    pointer-events: none;
+  }
+
+  .bookmark-badge {
+    display: none;
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    z-index: 2;
+    font-size: 12px;
+    font-weight: 700;
+    color: #ffffff;
+    background: var(--accent);
+    padding: 4px 12px;
+    border-radius: 999px;
+    box-shadow: 0 4px 10px rgba(74, 108, 247, 0.35);
+    pointer-events: none;
+  }
+
+  .bookmark-badge.is-visible {
+    display: inline-block;
+  }
+
   .card {
     position: relative;
     width: 100%;
@@ -451,6 +484,34 @@
 
   .toolbar-btn.memorize.is-memorized:active {
     background: #257e4a;
+  }
+
+  .bookmark-set-btn {
+    width: 100%;
+    max-width: 400px;
+    margin-top: 8px;
+    padding: 11px 0;
+    border: none;
+    border-radius: 10px;
+    background: #eef1fb;
+    color: var(--accent);
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+    -webkit-user-select: none;
+    user-select: none;
+    transition: transform 0.1s ease, background 0.15s ease;
+  }
+
+  .bookmark-set-btn:active {
+    transform: scale(0.98);
+    background: #e2e7fa;
+  }
+
+  .card-list-date {
+    font-size: 11px;
+    color: var(--text-sub);
+    white-space: nowrap;
   }
 
   .data-actions {
@@ -894,6 +955,11 @@
     </div>
 
     <div class="drawer-section">
+      <h3 class="drawer-section-title">しおり</h3>
+      <button type="button" class="drawer-btn" id="jumpToBookmarkBtn">📍 しおりへジャンプ</button>
+    </div>
+
+    <div class="drawer-section">
       <h3 class="drawer-section-title">データ</h3>
       <div class="data-actions">
         <button type="button" class="data-btn" id="exportBtn">💾 データを保存</button>
@@ -915,6 +981,8 @@
     <div class="tap-nav-zone prev" id="prevTapZone" aria-hidden="true"></div>
     <div class="tap-nav-zone next" id="nextTapZone" aria-hidden="true"></div>
     <div class="card-scene" id="cardScene">
+      <div class="bookmark-badge" id="bookmarkBadge">📍 今日はここから</div>
+      <div class="card-created-date" id="cardCreatedDate"></div>
       <div class="card" id="card">
         <div class="card-face card-front">
           <span class="face-label">表</span>
@@ -949,6 +1017,7 @@
       <button type="button" class="toolbar-btn edit" id="editBtn">✎ 編集</button>
       <button type="button" class="toolbar-btn memorize" id="memorizeBtn">☐ 覚えた！</button>
     </div>
+    <button type="button" class="bookmark-set-btn" id="setBookmarkBtn">🔖 ここから始める（しおり）</button>
   </div>
 
   <div class="empty-state" id="emptyState">
@@ -1006,8 +1075,26 @@
 
 <script>
   const STORAGE_KEY = "flashcards_data";
+  const BOOKMARK_KEY = "flashcards_bookmark_id";
 
   const UNCATEGORIZED = "未分類";
+
+  function genId() {
+    return "c_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2, 8);
+  }
+
+  function formatDateYMD(date) {
+    const pad = (n) => String(n).padStart(2, "0");
+    return date.getFullYear() + "/" + pad(date.getMonth() + 1) + "/" + pad(date.getDate());
+  }
+
+  function getBookmarkId() {
+    return localStorage.getItem(BOOKMARK_KEY) || null;
+  }
+
+  function setBookmarkId(id) {
+    localStorage.setItem(BOOKMARK_KEY, id);
+  }
 
   const defaultCards = [
     {
@@ -1046,7 +1133,14 @@
         list = defaultCards.slice();
       }
     }
-    return list.map((c) => ({ isMemorized: false, category: UNCATEGORIZED, ...c, category: (c.category && c.category.trim()) || UNCATEGORIZED }));
+    return list.map((c) => ({
+      isMemorized: false,
+      category: UNCATEGORIZED,
+      createdAt: "",
+      ...c,
+      id: c.id || genId(),
+      category: (c.category && c.category.trim()) || UNCATEGORIZED
+    }));
   }
 
   function saveCards() {
@@ -1062,6 +1156,10 @@
   const cardEl = document.getElementById("card");
   const prevTapZone = document.getElementById("prevTapZone");
   const nextTapZone = document.getElementById("nextTapZone");
+  const cardCreatedDateEl = document.getElementById("cardCreatedDate");
+  const bookmarkBadgeEl = document.getElementById("bookmarkBadge");
+  const setBookmarkBtn = document.getElementById("setBookmarkBtn");
+  const jumpToBookmarkBtn = document.getElementById("jumpToBookmarkBtn");
   const learningAreaEl = document.getElementById("learningArea");
   const cardActionsAreaEl = document.getElementById("cardActionsArea");
   const emptyStateEl = document.getElementById("emptyState");
@@ -1237,6 +1335,9 @@
 
     memorizeBtn.textContent = data.isMemorized ? "✅ 暗記済み" : "☐ 覚えた！";
     memorizeBtn.classList.toggle("is-memorized", !!data.isMemorized);
+
+    cardCreatedDateEl.textContent = "📅 " + (data.createdAt || "-");
+    bookmarkBadgeEl.classList.toggle("is-visible", data.id === getBookmarkId());
 
     cardEl.classList.remove("is-flipped");
   }
@@ -1435,6 +1536,7 @@
               '<div class="card-list-meta">' +
                 '<span class="card-list-category">' + escapeHtml(c.category || UNCATEGORIZED) + '</span>' +
                 '<span class="' + statusClass + '">' + statusText + '</span>' +
+                '<span class="card-list-date">📅 ' + escapeHtml(c.createdAt || "-") + '</span>' +
               '</div>' +
               '<div class="card-list-excerpt">' + escapeHtml(excerpt) + '</div>' +
             '</div>' +
@@ -1571,7 +1673,14 @@
 
       if (!confirm("現在のデータが上書きされますが宜しいですか？")) return;
 
-      cards = parsed.map((c) => ({ isMemorized: false, category: UNCATEGORIZED, ...c, category: (c.category && c.category.trim()) || UNCATEGORIZED }));
+      cards = parsed.map((c) => ({
+        isMemorized: false,
+        category: UNCATEGORIZED,
+        createdAt: "",
+        ...c,
+        id: c.id || genId(),
+        category: (c.category && c.category.trim()) || UNCATEGORIZED
+      }));
       saveCards();
       filterMode = "all";
       categoryFilter = "all";
@@ -1607,11 +1716,13 @@
       targetActualIndex = editingIndex;
     } else {
       cards.push({
+        id: genId(),
         title: inputTitle.value.trim(),
         category,
         front: inputFront.value.trim(),
         back: inputBack.value.trim(),
-        isMemorized: false
+        isMemorized: false,
+        createdAt: formatDateYMD(new Date())
       });
       targetActualIndex = cards.length - 1;
     }
@@ -1632,6 +1743,42 @@
     } else {
       closeModal();
     }
+  });
+
+  setBookmarkBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    if (visibleIndices.length === 0) return;
+    const actualIndex = visibleIndices[currentIndex];
+    setBookmarkId(cards[actualIndex].id);
+    renderCard(currentIndex);
+  });
+
+  jumpToBookmarkBtn.addEventListener("click", () => {
+    const bookmarkId = getBookmarkId();
+    if (!bookmarkId) {
+      alert("まだしおりがありません。");
+      return;
+    }
+
+    const actualIndex = cards.findIndex((c) => c.id === bookmarkId);
+    if (actualIndex === -1) {
+      alert("しおりが設定されたカードが見つかりませんでした。");
+      return;
+    }
+
+    filterMode = "all";
+    filterAllBtn.classList.add("active");
+    filterUnmemorizedBtn.classList.remove("active");
+    categoryFilter = "all";
+    categoryFilterSelect.value = "all";
+
+    populateCategoryFilterOptions();
+    currentCategoryBadge.textContent = "すべてのカテゴリ";
+    visibleIndices = computeVisibleIndices();
+    jumpToActualIndex(actualIndex);
+    renderCard(currentIndex);
+    updateStats();
+    closeLeftDrawer();
   });
 
   refreshView();
