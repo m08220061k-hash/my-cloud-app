@@ -953,7 +953,6 @@
     <div class="drawer-section">
       <h3 class="drawer-section-title">カード管理</h3>
       <button type="button" class="drawer-btn" id="openListBtn">📋 カード一覧</button>
-      <button type="button" class="drawer-btn" id="openBulkImportBtn" style="margin-top:8px;">📥 複数カード一括インポート</button>
     </div>
 
     <div class="drawer-section">
@@ -1033,8 +1032,9 @@
       <h2 id="modalTitle">新しいカードを追加</h2>
       <form id="cardForm">
         <div class="form-group bulk-paste-group">
-          <label for="bulkPasteArea">一括貼り付け(テンプレートをそのままペースト)</label>
+          <label for="bulkPasteArea">一括貼り付け(1枚でも複数枚でもOK。複数枚は「-----」で区切ってください)</label>
           <textarea id="bulkPasteArea" placeholder="🎴【カード：カテゴリー名】タイトル&#10;［表：キーワード3つ］&#10;1. ...&#10;［裏：短縮意味（2行）］&#10;..."></textarea>
+          <div id="bulkPasteStatus" style="font-size:12px; color:var(--accent); font-weight:600; margin-top:6px; min-height:16px;"></div>
           <button type="submit" class="autofill-btn" id="submitBtn">追加</button>
         </div>
 
@@ -1071,21 +1071,6 @@
       <div class="card-list-container" id="cardListContainer"></div>
       <div class="form-actions">
         <button type="button" class="form-btn cancel" id="closeListBtn">閉じる</button>
-      </div>
-    </div>
-  </div>
-
-  <div class="modal-overlay" id="bulkImportModalOverlay">
-    <div class="modal-sheet">
-      <h2>複数カード一括インポート</h2>
-      <div class="form-group bulk-paste-group">
-        <label for="bulkImportArea">AIが生成したテキストを貼り付け（1枚でも複数枚でもOK。複数枚の場合は行区切り線「-----」を入れてください）</label>
-        <textarea id="bulkImportArea" style="min-height:220px;"></textarea>
-      </div>
-      <div id="bulkImportResult" style="font-size:13px; color:var(--text-sub); white-space:pre-line; margin-bottom:8px;"></div>
-      <div class="form-actions">
-        <button type="button" class="form-btn cancel" id="cancelBulkImportBtn">キャンセル</button>
-        <button type="button" class="form-btn submit" id="runBulkImportBtn">インポート実行</button>
       </div>
     </div>
   </div>
@@ -1215,12 +1200,7 @@
   const closeListBtn = document.getElementById("closeListBtn");
   const listModalOverlay = document.getElementById("listModalOverlay");
   const cardListContainer = document.getElementById("cardListContainer");
-  const openBulkImportBtn = document.getElementById("openBulkImportBtn");
-  const bulkImportModalOverlay = document.getElementById("bulkImportModalOverlay");
-  const bulkImportArea = document.getElementById("bulkImportArea");
-  const bulkImportResultEl = document.getElementById("bulkImportResult");
-  const cancelBulkImportBtn = document.getElementById("cancelBulkImportBtn");
-  const runBulkImportBtn = document.getElementById("runBulkImportBtn");
+  const bulkPasteStatus = document.getElementById("bulkPasteStatus");
   const drawerOverlay = document.getElementById("drawerOverlay");
   const leftDrawer = document.getElementById("leftDrawer");
   const openLeftDrawerBtn = document.getElementById("openLeftDrawerBtn");
@@ -1430,6 +1410,20 @@
     return true;
   }
 
+  function addCardsFromParsed(parsedList) {
+    parsedList.forEach((parsed) => {
+      cards.push({
+        id: genId(),
+        title: parsed.title,
+        category: parsed.category || UNCATEGORIZED,
+        front: parsed.front,
+        back: parsed.back,
+        isMemorized: false,
+        createdAt: formatDateYMD(new Date())
+      });
+    });
+  }
+
   function splitIntoCardBlocks(rawText) {
     const bySeparator = rawText.split(/\n\s*-{3,}\s*\n/);
     const blocks = [];
@@ -1528,6 +1522,10 @@
 
   function openModal(editIndex) {
     cardForm.reset();
+    bulkPasteStatus.textContent = "";
+    inputTitle.required = true;
+    inputFront.required = true;
+    inputBack.required = true;
     populateCategoryDatalist();
 
     if (typeof editIndex === "number") {
@@ -1736,15 +1734,67 @@
   });
 
   bulkPasteArea.addEventListener("input", () => {
+    const blocks = splitIntoCardBlocks(bulkPasteArea.value);
+    const isBulkMode = blocks.length >= 2;
+    inputTitle.required = !isBulkMode;
+    inputFront.required = !isBulkMode;
+    inputBack.required = !isBulkMode;
+
+    if (isBulkMode) {
+      bulkPasteStatus.textContent = blocks.length + "件のカードを検出しました。「追加」でまとめて登録します。";
+      return;
+    }
+    bulkPasteStatus.textContent = "";
     tryAutoFill();
   });
 
   cardForm.addEventListener("submit", (e) => {
     e.preventDefault();
 
+    const isNewCard = editingIndex === null;
+    const blocks = isNewCard ? splitIntoCardBlocks(bulkPasteArea.value) : [];
+
+    if (isNewCard && blocks.length >= 2) {
+      const parsedList = [];
+      const failedBlocks = [];
+      blocks.forEach((block, i) => {
+        const parsed = parseBulkText(block);
+        if (!parsed || !parsed.title || !parsed.front || !parsed.back) {
+          failedBlocks.push(i + 1);
+          return;
+        }
+        parsedList.push(parsed);
+      });
+
+      addCardsFromParsed(parsedList);
+
+      saveCards();
+      populateCategoryFilterOptions();
+      visibleIndices = computeVisibleIndices();
+      if (parsedList.length > 0) {
+        jumpToActualIndex(cards.length - 1);
+      }
+      renderCard(currentIndex);
+      updateStats();
+
+      bulkPasteStatus.textContent = parsedList.length + "件のカードを追加しました。" +
+        (failedBlocks.length > 0 ? failedBlocks.length + "件は読み取れませんでした（" + failedBlocks.join("、") + "番目）。" : "");
+
+      if (failedBlocks.length === 0) {
+        bulkPasteArea.value = "";
+        inputTitle.value = "";
+        inputFront.value = "";
+        inputBack.value = "";
+        inputTitle.required = true;
+        inputFront.required = true;
+        inputBack.required = true;
+        bulkPasteArea.focus();
+      }
+      return;
+    }
+
     let targetActualIndex;
     const category = inputCategory.value.trim() || UNCATEGORIZED;
-    const isNewCard = editingIndex === null;
 
     if (!isNewCard) {
       cards[editingIndex] = {
@@ -1777,6 +1827,7 @@
 
     if (isNewCard) {
       bulkPasteArea.value = "";
+      bulkPasteStatus.textContent = "";
       inputTitle.value = "";
       inputFront.value = "";
       inputBack.value = "";
@@ -1792,72 +1843,6 @@
     const actualIndex = visibleIndices[currentIndex];
     setBookmarkId(cards[actualIndex].id);
     renderCard(currentIndex);
-  });
-
-  function openBulkImportModal() {
-    bulkImportArea.value = "";
-    bulkImportResultEl.textContent = "";
-    bulkImportModalOverlay.classList.add("is-open");
-  }
-
-  function closeBulkImportModal() {
-    bulkImportModalOverlay.classList.remove("is-open");
-  }
-
-  openBulkImportBtn.addEventListener("click", () => {
-    closeLeftDrawer();
-    openBulkImportModal();
-  });
-
-  cancelBulkImportBtn.addEventListener("click", closeBulkImportModal);
-
-  bulkImportModalOverlay.addEventListener("click", (e) => {
-    if (e.target === bulkImportModalOverlay) closeBulkImportModal();
-  });
-
-  runBulkImportBtn.addEventListener("click", () => {
-    const rawText = bulkImportArea.value;
-    if (!rawText.trim()) {
-      bulkImportResultEl.textContent = "テキストが入力されていません。";
-      return;
-    }
-
-    const blocks = splitIntoCardBlocks(rawText);
-    let successCount = 0;
-    const failedBlocks = [];
-
-    blocks.forEach((block, i) => {
-      const parsed = parseBulkText(block);
-      if (!parsed || !parsed.title || !parsed.front || !parsed.back) {
-        failedBlocks.push(i + 1);
-        return;
-      }
-      cards.push({
-        id: genId(),
-        title: parsed.title,
-        category: parsed.category || UNCATEGORIZED,
-        front: parsed.front,
-        back: parsed.back,
-        isMemorized: false,
-        createdAt: formatDateYMD(new Date())
-      });
-      successCount++;
-    });
-
-    if (successCount > 0) {
-      saveCards();
-      refreshView();
-    }
-
-    let resultText = successCount + "件のカードを追加しました。";
-    if (failedBlocks.length > 0) {
-      resultText += "\n" + failedBlocks.length + "件は読み取れませんでした（" + failedBlocks.join("、") + "番目）。フォーマットをご確認ください。";
-    }
-    bulkImportResultEl.textContent = resultText;
-
-    if (failedBlocks.length === 0) {
-      bulkImportArea.value = "";
-    }
   });
 
   jumpToBookmarkBtn.addEventListener("click", () => {
