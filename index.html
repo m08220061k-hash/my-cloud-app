@@ -953,6 +953,7 @@
     <div class="drawer-section">
       <h3 class="drawer-section-title">カード管理</h3>
       <button type="button" class="drawer-btn" id="openListBtn">📋 カード一覧</button>
+      <button type="button" class="drawer-btn" id="openBulkImportBtn" style="margin-top:8px;">📥 複数カード一括インポート</button>
     </div>
 
     <div class="drawer-section">
@@ -1070,6 +1071,21 @@
       <div class="card-list-container" id="cardListContainer"></div>
       <div class="form-actions">
         <button type="button" class="form-btn cancel" id="closeListBtn">閉じる</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="bulkImportModalOverlay">
+    <div class="modal-sheet">
+      <h2>複数カード一括インポート</h2>
+      <div class="form-group bulk-paste-group">
+        <label for="bulkImportArea">AIが生成したテキストを貼り付け（1枚でも複数枚でもOK。複数枚の場合は行区切り線「-----」を入れてください）</label>
+        <textarea id="bulkImportArea" style="min-height:220px;"></textarea>
+      </div>
+      <div id="bulkImportResult" style="font-size:13px; color:var(--text-sub); white-space:pre-line; margin-bottom:8px;"></div>
+      <div class="form-actions">
+        <button type="button" class="form-btn cancel" id="cancelBulkImportBtn">キャンセル</button>
+        <button type="button" class="form-btn submit" id="runBulkImportBtn">インポート実行</button>
       </div>
     </div>
   </div>
@@ -1199,6 +1215,12 @@
   const closeListBtn = document.getElementById("closeListBtn");
   const listModalOverlay = document.getElementById("listModalOverlay");
   const cardListContainer = document.getElementById("cardListContainer");
+  const openBulkImportBtn = document.getElementById("openBulkImportBtn");
+  const bulkImportModalOverlay = document.getElementById("bulkImportModalOverlay");
+  const bulkImportArea = document.getElementById("bulkImportArea");
+  const bulkImportResultEl = document.getElementById("bulkImportResult");
+  const cancelBulkImportBtn = document.getElementById("cancelBulkImportBtn");
+  const runBulkImportBtn = document.getElementById("runBulkImportBtn");
   const drawerOverlay = document.getElementById("drawerOverlay");
   const leftDrawer = document.getElementById("leftDrawer");
   const openLeftDrawerBtn = document.getElementById("openLeftDrawerBtn");
@@ -1406,6 +1428,24 @@
     inputFront.value = parsed.front;
     inputBack.value = parsed.back;
     return true;
+  }
+
+  function splitIntoCardBlocks(rawText) {
+    const bySeparator = rawText.split(/\n\s*-{3,}\s*\n/);
+    const blocks = [];
+    bySeparator.forEach((chunk) => {
+      const lines = chunk.split(/\r?\n/);
+      let current = [];
+      lines.forEach((line) => {
+        if (/^🎴/.test(line.trim()) && current.length > 0) {
+          blocks.push(current.join("\n"));
+          current = [];
+        }
+        current.push(line);
+      });
+      if (current.join("\n").trim()) blocks.push(current.join("\n"));
+    });
+    return blocks.map((b) => b.trim()).filter((b) => b.length > 0);
   }
 
   function goToPrevCard() {
@@ -1752,6 +1792,72 @@
     const actualIndex = visibleIndices[currentIndex];
     setBookmarkId(cards[actualIndex].id);
     renderCard(currentIndex);
+  });
+
+  function openBulkImportModal() {
+    bulkImportArea.value = "";
+    bulkImportResultEl.textContent = "";
+    bulkImportModalOverlay.classList.add("is-open");
+  }
+
+  function closeBulkImportModal() {
+    bulkImportModalOverlay.classList.remove("is-open");
+  }
+
+  openBulkImportBtn.addEventListener("click", () => {
+    closeLeftDrawer();
+    openBulkImportModal();
+  });
+
+  cancelBulkImportBtn.addEventListener("click", closeBulkImportModal);
+
+  bulkImportModalOverlay.addEventListener("click", (e) => {
+    if (e.target === bulkImportModalOverlay) closeBulkImportModal();
+  });
+
+  runBulkImportBtn.addEventListener("click", () => {
+    const rawText = bulkImportArea.value;
+    if (!rawText.trim()) {
+      bulkImportResultEl.textContent = "テキストが入力されていません。";
+      return;
+    }
+
+    const blocks = splitIntoCardBlocks(rawText);
+    let successCount = 0;
+    const failedBlocks = [];
+
+    blocks.forEach((block, i) => {
+      const parsed = parseBulkText(block);
+      if (!parsed || !parsed.title || !parsed.front || !parsed.back) {
+        failedBlocks.push(i + 1);
+        return;
+      }
+      cards.push({
+        id: genId(),
+        title: parsed.title,
+        category: parsed.category || UNCATEGORIZED,
+        front: parsed.front,
+        back: parsed.back,
+        isMemorized: false,
+        createdAt: formatDateYMD(new Date())
+      });
+      successCount++;
+    });
+
+    if (successCount > 0) {
+      saveCards();
+      refreshView();
+    }
+
+    let resultText = successCount + "件のカードを追加しました。";
+    if (failedBlocks.length > 0) {
+      resultText += "\n" + failedBlocks.length + "件は読み取れませんでした（" + failedBlocks.join("、") + "番目）。フォーマットをご確認ください。";
+    }
+    bulkImportResultEl.textContent = resultText;
+
+    if (failedBlocks.length === 0) {
+      bulkImportArea.value = "";
+    }
   });
 
   jumpToBookmarkBtn.addEventListener("click", () => {
