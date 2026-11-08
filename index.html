@@ -497,21 +497,28 @@
     background: #e2e5ee;
   }
 
-  .toolbar-btn.memorize {
+  .nav-btn.filter-open-btn {
+    background: #eef1fb;
+    color: var(--accent);
+    box-shadow: none;
+    white-space: nowrap;
+  }
+
+  .nav-btn.filter-open-btn.is-active {
+    background: #fff4d6;
+    color: #a86a00;
+  }
+
+  .filter-result-text {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--accent);
+    margin: 4px 0 0;
+  }
+
+  .form-btn.filter-done-btn {
     background: var(--accent);
     color: #fff;
-  }
-
-  .toolbar-btn.memorize:active {
-    background: #3a5ce0;
-  }
-
-  .toolbar-btn.memorize.is-memorized {
-    background: #2e9e5b;
-  }
-
-  .toolbar-btn.memorize.is-memorized:active {
-    background: #257e4a;
   }
 
   .bookmark-set-btn {
@@ -983,17 +990,6 @@
     </div>
 
     <div class="drawer-section">
-      <h3 class="drawer-section-title">出題フィルター</h3>
-      <div class="filter-tabs">
-        <button type="button" class="filter-tab active" id="filterAllBtn" data-filter="all">すべて</button>
-        <button type="button" class="filter-tab" id="filterUnmemorizedBtn" data-filter="unmemorized">未暗記のみ</button>
-      </div>
-      <select class="category-filter-select" id="categoryFilterSelect">
-        <option value="all">すべてのカテゴリ</option>
-      </select>
-    </div>
-
-    <div class="drawer-section">
       <h3 class="drawer-section-title">カード管理</h3>
       <button type="button" class="drawer-btn" id="openListBtn">📋 カード一覧</button>
     </div>
@@ -1045,7 +1041,7 @@
 
   <div class="stats-row">
     <span class="progress" id="progress"></span>
-    <span class="memo-rate-text" id="memoRateText"></span>
+    <span class="memo-rate-text" id="filterSummaryText"></span>
   </div>
   <div class="progress-bar-track">
     <div class="progress-bar-fill" id="progressBarFill"></div>
@@ -1054,20 +1050,20 @@
   <div id="cardActionsArea">
     <div class="nav-controls">
       <button type="button" class="nav-btn" id="prevBtn">← 前</button>
+      <button type="button" class="nav-btn filter-open-btn" id="openFilterBtn">🔍 絞り込み</button>
       <button type="button" class="nav-btn primary" id="nextBtn">次 →</button>
     </div>
 
     <div class="card-toolbar">
       <button type="button" class="toolbar-btn edit" id="editBtn">✎ 編集</button>
-      <button type="button" class="toolbar-btn memorize" id="memorizeBtn">☐ 覚えた！</button>
     </div>
     <button type="button" class="bookmark-set-btn" id="setBookmarkBtn">🔖 ここから始める（しおり）</button>
   </div>
 
   <div class="empty-state" id="emptyState">
-    <div class="empty-emoji" id="emptyEmoji">🎉</div>
-    <p id="emptyMessage">全カード暗記達成！</p>
-    <button type="button" id="backToAllBtn">すべてのカードを見る</button>
+    <div class="empty-emoji" id="emptyEmoji">🔍</div>
+    <p id="emptyMessage">条件に合うカードがありません。</p>
+    <button type="button" id="backToAllBtn">絞り込みを解除する</button>
   </div>
 
   <div class="modal-overlay" id="modalOverlay">
@@ -1105,6 +1101,30 @@
         </div>
       </form>
       <button type="button" class="modal-delete-btn" id="modalDeleteBtn" style="display:none;">🗑 このカードを削除</button>
+    </div>
+  </div>
+
+  <!-- 絞り込みシート（カテゴリ・登録日） -->
+  <div class="modal-overlay" id="filterModalOverlay">
+    <div class="modal-sheet">
+      <h2>絞り込み</h2>
+      <div class="form-group">
+        <label for="categoryFilterSelect">カテゴリ</label>
+        <select class="category-filter-select" id="categoryFilterSelect">
+          <option value="all">すべてのカテゴリ</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label for="dateFilterSelect">登録日</label>
+        <select class="category-filter-select" id="dateFilterSelect">
+          <option value="all">すべての登録日</option>
+        </select>
+      </div>
+      <p class="filter-result-text" id="filterResultText"></p>
+      <div class="form-actions">
+        <button type="button" class="form-btn cancel" id="clearFilterBtn">解除</button>
+        <button type="button" class="form-btn filter-done-btn" id="closeFilterBtn">この条件で見る</button>
+      </div>
     </div>
   </div>
 
@@ -1293,8 +1313,8 @@
   let cards = [];
   let sortMode = "default";
   let shuffleOrder = [];
-  let filterMode = "all";
   let categoryFilter = "all";
+  let dateFilter = "all"; // "all" / "none"（日付なし）/ "2026/11/08" の形式
   let visibleIndices = [];
   let currentIndex = 0;
 
@@ -1313,13 +1333,16 @@
   const frontContentEl = document.getElementById("frontContent");
   const backContentEl = document.getElementById("backContent");
   const progressEl = document.getElementById("progress");
-  const memoRateTextEl = document.getElementById("memoRateText");
+  const filterSummaryTextEl = document.getElementById("filterSummaryText");
   const progressBarFillEl = document.getElementById("progressBarFill");
   const currentCategoryBadge = document.getElementById("currentCategoryBadge");
-  const filterAllBtn = document.getElementById("filterAllBtn");
-  const filterUnmemorizedBtn = document.getElementById("filterUnmemorizedBtn");
+  const dateFilterSelect = document.getElementById("dateFilterSelect");
+  const openFilterBtn = document.getElementById("openFilterBtn");
+  const filterModalOverlay = document.getElementById("filterModalOverlay");
+  const closeFilterBtn = document.getElementById("closeFilterBtn");
+  const clearFilterBtn = document.getElementById("clearFilterBtn");
+  const filterResultTextEl = document.getElementById("filterResultText");
   const categoryFilterSelect = document.getElementById("categoryFilterSelect");
-  const memorizeBtn = document.getElementById("memorizeBtn");
   const prevBtn = document.getElementById("prevBtn");
   const nextBtn = document.getElementById("nextBtn");
   const openAddBtn = document.getElementById("openAddBtn");
@@ -1402,8 +1425,8 @@
     return sortIndices(
       cards
         .map((_, i) => i)
-        .filter((i) => filterMode === "all" || !cards[i].isMemorized)
         .filter((i) => categoryFilter === "all" || cards[i].category === categoryFilter)
+        .filter((i) => dateFilter === "all" || dateKey(cards[i].createdAt) === dateFilter)
     );
   }
 
@@ -1431,6 +1454,57 @@
 
     categoryFilterSelect.value = categories.includes(prevValue) || prevValue === "all" ? prevValue : "all";
     categoryFilter = categoryFilterSelect.value;
+  }
+
+  // 登録日を "2026/11/08" の形にそろえる（日付なしは "none"）
+  function dateKey(str) {
+    const v = dateValue(str);
+    if (!v) return "none";
+    const y = Math.floor(v / 10000), m = Math.floor(v / 100) % 100, d = v % 100;
+    return y + "/" + String(m).padStart(2, "0") + "/" + String(d).padStart(2, "0");
+  }
+
+  function populateDateFilterOptions() {
+    // カテゴリで絞った中での登録日ごとの枚数（新しい日付が上）
+    const counts = new Map();
+    cards.forEach((c) => {
+      if (categoryFilter !== "all" && c.category !== categoryFilter) return;
+      const k = dateKey(c.createdAt);
+      counts.set(k, (counts.get(k) || 0) + 1);
+    });
+    const keys = Array.from(counts.keys()).filter((k) => k !== "none").sort().reverse();
+    if (counts.has("none")) keys.push("none");
+
+    dateFilterSelect.innerHTML = "";
+    const allOption = document.createElement("option");
+    allOption.value = "all";
+    allOption.textContent = "すべての登録日";
+    dateFilterSelect.appendChild(allOption);
+    keys.forEach((k) => {
+      const opt = document.createElement("option");
+      opt.value = k;
+      opt.textContent = (k === "none" ? "登録日なし" : k) + "（" + counts.get(k) + "枚）";
+      dateFilterSelect.appendChild(opt);
+    });
+    if (dateFilter !== "all" && !counts.has(dateFilter)) dateFilter = "all";
+    dateFilterSelect.value = dateFilter;
+  }
+
+  function isFiltering() {
+    return categoryFilter !== "all" || dateFilter !== "all";
+  }
+
+  function filterLabel() {
+    const parts = [];
+    parts.push(categoryFilter === "all" ? "すべてのカテゴリ" : categoryFilter);
+    if (dateFilter !== "all") parts.push(dateFilter === "none" ? "登録日なし" : "📅 " + dateFilter);
+    return parts.join(" ・ ");
+  }
+
+  function resetFilters() {
+    categoryFilter = "all";
+    dateFilter = "all";
+    categoryFilterSelect.value = "all";
   }
 
   function populateCategoryDatalist() {
@@ -1465,12 +1539,14 @@
     currentIndex = pos !== -1 ? pos : 0;
   }
 
+  // 進み具合のバー（いま何枚目まで見たか）と、絞り込み状態の表示
   function updateStats() {
-    const total = cards.length;
-    const memorizedCount = cards.filter((c) => c.isMemorized).length;
-    const rate = total === 0 ? 0 : Math.round((memorizedCount / total) * 100);
-    memoRateTextEl.textContent = "暗記率: " + rate + "%";
+    const total = visibleIndices.length;
+    const rate = total === 0 ? 0 : Math.round(((currentIndex + 1) / total) * 100);
     progressBarFillEl.style.width = rate + "%";
+    filterSummaryTextEl.textContent = isFiltering() ? "絞り込み中（全" + cards.length + "枚）" : "全" + cards.length + "枚";
+    openFilterBtn.classList.toggle("is-active", isFiltering());
+    openFilterBtn.textContent = isFiltering() ? "🔍 絞り込み中" : "🔍 絞り込み";
   }
 
   function renderFrontContent(text) {
@@ -1503,10 +1579,11 @@
         emptyMessageEl.textContent = currentDeck.name + "のカードはまだありません。右上の「＋」から追加できます。";
         backToAllBtn.style.display = "none";
       } else {
-        emptyEmojiEl.textContent = "🎉";
-        emptyMessageEl.textContent = "全カード暗記達成！";
+        emptyEmojiEl.textContent = "🔍";
+        emptyMessageEl.textContent = "条件に合うカードがありません。";
         backToAllBtn.style.display = "";
       }
+      updateStats();
       return;
     }
 
@@ -1523,18 +1600,17 @@
 
     progressEl.textContent = (pos + 1) + " / " + visibleIndices.length;
 
-    memorizeBtn.textContent = data.isMemorized ? "✅ 暗記済み" : "☐ 覚えた！";
-    memorizeBtn.classList.toggle("is-memorized", !!data.isMemorized);
-
     cardCreatedDateEl.textContent = "📅 " + (data.createdAt || "-");
     bookmarkBadgeEl.classList.toggle("is-visible", data.id === getBookmarkId());
 
     cardEl.classList.remove("is-flipped");
+    updateStats();
   }
 
   function refreshView() {
     populateCategoryFilterOptions();
-    currentCategoryBadge.textContent = categoryFilter === "all" ? "すべてのカテゴリ" : categoryFilter;
+    populateDateFilterOptions();
+    currentCategoryBadge.textContent = filterLabel();
     visibleIndices = computeVisibleIndices();
     clampPosition();
     renderCard(currentIndex);
@@ -1696,42 +1772,55 @@
     goToNextCard();
   });
 
-  memorizeBtn.addEventListener("click", (e) => {
+  // ===== 絞り込みシート =====
+  function updateFilterResultText() {
+    filterResultTextEl.textContent = "→ " + visibleIndices.length + "枚が対象です";
+  }
+
+  function openFilterModal() {
+    refreshView();
+    updateFilterResultText();
+    filterModalOverlay.classList.add("is-open");
+  }
+
+  function closeFilterModal() {
+    filterModalOverlay.classList.remove("is-open");
+  }
+
+  openFilterBtn.addEventListener("click", (e) => {
     e.stopPropagation();
-    if (visibleIndices.length === 0) return;
-    const actualIndex = visibleIndices[currentIndex];
-    cards[actualIndex].isMemorized = !cards[actualIndex].isMemorized;
-    saveCards();
-    refreshView();
+    openFilterModal();
+  });
+  closeFilterBtn.addEventListener("click", closeFilterModal);
+  filterModalOverlay.addEventListener("click", (e) => {
+    if (e.target === filterModalOverlay) closeFilterModal();
   });
 
-  filterAllBtn.addEventListener("click", () => {
-    filterMode = "all";
-    filterAllBtn.classList.add("active");
-    filterUnmemorizedBtn.classList.remove("active");
+  clearFilterBtn.addEventListener("click", () => {
+    resetFilters();
     currentIndex = 0;
     refreshView();
-    closeLeftDrawer();
-  });
-
-  filterUnmemorizedBtn.addEventListener("click", () => {
-    filterMode = "unmemorized";
-    filterUnmemorizedBtn.classList.add("active");
-    filterAllBtn.classList.remove("active");
-    currentIndex = 0;
-    refreshView();
-    closeLeftDrawer();
+    updateFilterResultText();
   });
 
   backToAllBtn.addEventListener("click", () => {
-    filterAllBtn.click();
+    resetFilters();
+    currentIndex = 0;
+    refreshView();
   });
 
   categoryFilterSelect.addEventListener("change", () => {
     categoryFilter = categoryFilterSelect.value;
     currentIndex = 0;
     refreshView();
-    closeLeftDrawer();
+    updateFilterResultText();
+  });
+
+  dateFilterSelect.addEventListener("change", () => {
+    dateFilter = dateFilterSelect.value;
+    currentIndex = 0;
+    refreshView();
+    updateFilterResultText();
   });
 
   function focusFirstFieldAfterOpen() {
@@ -1791,15 +1880,12 @@
     cardListContainer.innerHTML = cards
       .map((c, i) => {
         const excerpt = (c.front || "").split(/\r?\n/)[0];
-        const statusClass = c.isMemorized ? "card-list-status is-memorized" : "card-list-status";
-        const statusText = c.isMemorized ? "✅ 暗記済み" : "☐ 未暗記";
         return (
           '<div class="card-list-item">' +
             '<div class="card-list-main">' +
               '<div class="card-list-title">' + escapeHtml(c.title) + '</div>' +
               '<div class="card-list-meta">' +
                 '<span class="card-list-category">' + escapeHtml(c.category || UNCATEGORIZED) + '</span>' +
-                '<span class="' + statusClass + '">' + statusText + '</span>' +
                 '<span class="card-list-date">📅 ' + escapeHtml(c.createdAt || "-") + '</span>' +
               '</div>' +
               '<div class="card-list-excerpt">' + escapeHtml(excerpt) + '</div>' +
@@ -1957,10 +2043,7 @@
       });
       saveCards();
       updateSyncStatus();
-      filterMode = "all";
-      categoryFilter = "all";
-      filterAllBtn.classList.add("active");
-      filterUnmemorizedBtn.classList.remove("active");
+      resetFilters();
       currentIndex = 0;
       refreshView();
       alert("データを復元しました。");
@@ -2094,18 +2177,13 @@
       return;
     }
 
-    filterMode = "all";
-    filterAllBtn.classList.add("active");
-    filterUnmemorizedBtn.classList.remove("active");
-    categoryFilter = "all";
-    categoryFilterSelect.value = "all";
-
+    resetFilters();
     populateCategoryFilterOptions();
-    currentCategoryBadge.textContent = "すべてのカテゴリ";
+    populateDateFilterOptions();
+    currentCategoryBadge.textContent = filterLabel();
     visibleIndices = computeVisibleIndices();
     jumpToActualIndex(actualIndex);
     renderCard(currentIndex);
-    updateStats();
     closeLeftDrawer();
   });
 
@@ -2148,11 +2226,7 @@
     renderDeckTabs();
 
     // 表示条件はリセット（並び順は試験ごとに覚えておく）
-    filterMode = "all";
-    categoryFilter = "all";
-    categoryFilterSelect.value = "all";
-    filterAllBtn.classList.add("active");
-    filterUnmemorizedBtn.classList.remove("active");
+    resetFilters();
     sortMode = safeGet(deckKey("sort")) || "default";
     shuffleOrder = readJSON(deckKey("shuffle"), []);
     if (!Array.isArray(shuffleOrder)) shuffleOrder = [];
